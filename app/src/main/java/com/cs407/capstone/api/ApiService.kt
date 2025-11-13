@@ -12,23 +12,28 @@ import com.cs407.capstone.data.UpdateAccountSettingsResponse
 import retrofit2.Response
 import retrofit2.http.Body
 import retrofit2.http.GET
+import retrofit2.http.Headers
 import retrofit2.http.PATCH
 import retrofit2.http.POST
 import retrofit2.http.Path
 
 interface ApiService {
-    @POST("prod/accounts")
+    @POST("accounts")
     suspend fun createAccount(@Body request: CreateAccountRequest): Response<CreateAccountResponse>
 
-    @POST("prod/login")
+    @POST("login")
     suspend fun login(@Body request: LoginRequest): Response<LoginResponse>
 
-    @PATCH("prod/accounts/settings")
+    @PATCH("accounts/settings")
     suspend fun updateAccountSettings(@Body request: UpdateAccountSettingsRequest): Response<UpdateAccountSettingsResponse>
 
-    @GET("prod/accounts/{accountId}/transactions")
+    @GET("accounts/{accountId}/transactions")
     suspend fun getRecentTransactions(@Path("accountId") accountId: String): Response<GetRecentTransactionsResponse>
 
-    @POST("prod/transactions")
+    @POST("transactions")
     suspend fun postTransaction(@Body post: TransactionRequest): Response<Transaction>
+
+    @POST("transactions")
+    @Headers("Content-Type: application/json")
+    suspend fun postTransactionFromJson(@Body jsonString: okhttp3.RequestBody): Response<Transaction>
 }

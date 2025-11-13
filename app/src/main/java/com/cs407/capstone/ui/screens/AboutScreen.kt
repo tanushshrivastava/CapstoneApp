@@ -14,14 +14,21 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun AboutScreen() {
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        Text("About", style = MaterialTheme.typography.headlineMedium)
+        Text("Fraud Detection System", style = MaterialTheme.typography.headlineMedium)
         Spacer(modifier = Modifier.height(16.dp))
         Text(
-            "This application is a demonstration of a cross-platform fraud detection system. " +
-            "The user can create an account, sign in, and submit transactions to be analyzed for fraudulent activity."
+            "This application monitors Gmail notifications for transaction data and automatically processes them for fraud detection.",
+            style = MaterialTheme.typography.bodyMedium
         )
         Spacer(modifier = Modifier.height(16.dp))
-        Text("Team:", style = MaterialTheme.typography.headlineSmall)
+        Text("How it works:", style = MaterialTheme.typography.titleMedium)
+        Spacer(modifier = Modifier.height(8.dp))
+        Text("• Login to your account")
+        Text("• View transactions in Account tab")
+        Text("• Update settings as needed")
+        Text("• Gmail notifications are automatically processed")
+        Spacer(modifier = Modifier.height(16.dp))
+        Text("Team:", style = MaterialTheme.typography.titleMedium)
         Spacer(modifier = Modifier.height(8.dp))
         Text("- Tanus Sharma")
     }

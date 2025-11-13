@@ -1,5 +1,6 @@
 package com.cs407.capstone.viewModel
 
+import android.content.Context
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -11,7 +12,7 @@ import com.cs407.capstone.data.LoginRequest
 import com.cs407.capstone.api.RetrofitClient
 import kotlinx.coroutines.launch
 
-class AccountViewModel : ViewModel() {
+class AccountViewModel(private val context: Context) : ViewModel() {
     var username by mutableStateOf("")
     var email by mutableStateOf("")
     var address by mutableStateOf("")
@@ -23,11 +24,17 @@ class AccountViewModel : ViewModel() {
 
     var isLoggedIn by mutableStateOf(false)
     var loggedInAccount by mutableStateOf<Account?>(null)
+    var fraudThreshold by mutableStateOf(0.0)
 
     var isLoading by mutableStateOf(false)
     var errorMessage by mutableStateOf<String?>(null)
 
     private val apiService: ApiService = RetrofitClient.apiService
+    private val sharedPreferences = context.getSharedPreferences("account_prefs", Context.MODE_PRIVATE)
+    
+    init {
+        loadSavedAccount()
+    }
 
     private fun validateCreateAccountFields(): Boolean {
         if (username.isBlank() || email.isBlank() || password.isBlank()) {
@@ -87,13 +94,16 @@ class AccountViewModel : ViewModel() {
                 val response = apiService.login(request)
                 if (response.isSuccessful) {
                     val accountResponse = response.body()!!
-                    loggedInAccount = Account(accountResponse.accountId, accountResponse.username, accountResponse.email)
+                    loggedInAccount = Account(accountResponse.accountId, accountResponse.username, null)
+                    phoneNumber = accountResponse.phoneNumber ?: ""
+                    fraudThreshold = accountResponse.fraudThreshold
                     isLoggedIn = true
+                    saveAccount(accountResponse.accountId, accountResponse.username, phoneNumber, fraudThreshold)
                 } else {
                     errorMessage = "Invalid credentials. Please try again."
                 }
             } catch (e: Exception) {
-                errorMessage = e.toString()
+                errorMessage = "Network error. Please check your connection and try again."
             }
             finally {
                 isLoading = false
@@ -101,6 +111,59 @@ class AccountViewModel : ViewModel() {
         }
     }
 
+    fun updateAccountSettings() {
+        val accountId = loggedInAccount?.accountId ?: return
+        
+        viewModelScope.launch {
+            isLoading = true
+            errorMessage = null
+            val request = com.cs407.capstone.data.UpdateAccountSettingsRequest(
+                accountId = accountId,
+                phoneNumber = phoneNumber,
+                fraudThreshold = fraudThreshold
+            )
+            try {
+                val response = apiService.updateAccountSettings(request)
+                if (response.isSuccessful) {
+                    errorMessage = "✅ Settings updated successfully!"
+                    saveAccount(accountId, loggedInAccount?.username ?: "", phoneNumber, fraudThreshold)
+                } else {
+                    errorMessage = "❌ Failed to update settings"
+                }
+            } catch (e: Exception) {
+                errorMessage = "❌ Network error. Please try again."
+            } finally {
+                isLoading = false
+            }
+        }
+    }
+
+    private fun saveAccount(accountId: String, username: String, phoneNumber: String, fraudThreshold: Double) {
+        with(sharedPreferences.edit()) {
+            putString("account_id", accountId)
+            putString("username", username)
+            putString("phone_number", phoneNumber)
+            putFloat("fraud_threshold", fraudThreshold.toFloat())
+            putBoolean("is_logged_in", true)
+            apply()
+        }
+    }
+    
+    private fun loadSavedAccount() {
+        val savedAccountId = sharedPreferences.getString("account_id", null)
+        val savedUsername = sharedPreferences.getString("username", null)
+        val savedPhoneNumber = sharedPreferences.getString("phone_number", "")
+        val savedFraudThreshold = sharedPreferences.getFloat("fraud_threshold", 0.0f).toDouble()
+        val savedIsLoggedIn = sharedPreferences.getBoolean("is_logged_in", false)
+        
+        if (savedIsLoggedIn && savedAccountId != null && savedUsername != null) {
+            loggedInAccount = Account(savedAccountId, savedUsername, null)
+            phoneNumber = savedPhoneNumber ?: ""
+            fraudThreshold = savedFraudThreshold
+            isLoggedIn = true
+        }
+    }
+    
     fun logout() {
         isLoggedIn = false
         loggedInAccount = null
@@ -109,9 +172,15 @@ class AccountViewModel : ViewModel() {
         address = ""
         password = ""
         phoneNumber = ""
+        fraudThreshold = 0.0
         identifier = ""
         loginPassword = ""
         errorMessage = null
+        
+        with(sharedPreferences.edit()) {
+            clear()
+            apply()
+        }
     }
 }
 

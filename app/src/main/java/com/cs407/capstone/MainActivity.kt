@@ -44,7 +44,7 @@ import com.cs407.capstone.viewModel.NotificationViewModel
 import com.cs407.capstone.viewModel.PredictViewModel
 
 class MainActivity : ComponentActivity() {
-    private val accountViewModel: AccountViewModel by viewModels()
+    private val accountViewModel: AccountViewModel by lazy { AccountViewModel(this) }
     private val predictViewModel: PredictViewModel by viewModels()
     private val notificationViewModel: NotificationViewModel by viewModels()
 
@@ -67,24 +67,11 @@ class MainActivity : ComponentActivity() {
             CapstoneTheme {
                 val navController = rememberNavController()
                 val items = listOf(
-                    Screen.Predict,
-                    Screen.Notifications,
                     Screen.Account,
                     Screen.About
                 )
 
-                val loggedInAccount = accountViewModel.loggedInAccount
-                LaunchedEffect(loggedInAccount) {
-                    val sharedPreferences = getSharedPreferences("account_prefs", Context.MODE_PRIVATE)
-                    with(sharedPreferences.edit()) {
-                        if (loggedInAccount != null) {
-                            putString("account_id", loggedInAccount.accountId)
-                        } else {
-                            remove("account_id")
-                        }
-                        apply()
-                    }
-                }
+
 
                 Scaffold(
                     topBar = { TopBar() },
@@ -113,11 +100,9 @@ class MainActivity : ComponentActivity() {
                 ) { innerPadding ->
                     NavHost(
                         navController,
-                        startDestination = Screen.Predict.route,
+                        startDestination = Screen.Account.route,
                         Modifier.padding(innerPadding)
                     ) {
-                        composable(Screen.Predict.route) { PredictScreen(predictViewModel = predictViewModel, accountViewModel = accountViewModel) }
-                        composable(Screen.Notifications.route) { NotificationScreen(notifications = notificationViewModel.notifications) }
                         composable(Screen.Account.route) { AccountScreen(accountViewModel = accountViewModel) }
                         composable(Screen.About.route) { AboutScreen() }
                     }
@@ -134,9 +119,8 @@ class MainActivity : ComponentActivity() {
 
 fun getIconForScreen(screen: Screen): ImageVector {
     return when (screen) {
-        Screen.Predict -> Icons.AutoMirrored.Filled.Send
-        Screen.Notifications -> Icons.Default.Notifications
         Screen.Account -> Icons.Default.AccountCircle
         Screen.About -> Icons.Default.Info
+        else -> Icons.Default.Info
     }
 }

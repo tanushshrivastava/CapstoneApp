@@ -37,7 +37,7 @@ class PredictViewModel : ViewModel() {
     val unixTime = mutableStateOf("")
     val predictionResult = mutableStateOf("")
 
-    val recentTransactions = mutableStateListOf<Transaction>()
+    val recentTransactions = mutableStateListOf<com.cs407.capstone.data.RecentTransaction>()
 
     // Hardcoded templates
     private val templates = listOf(
