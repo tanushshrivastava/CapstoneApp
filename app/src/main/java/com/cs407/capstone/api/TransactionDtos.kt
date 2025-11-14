@@ -4,10 +4,17 @@ import com.google.gson.annotations.SerializedName
 
 data class PostTransactionRequest(
     val accountId: String,
-    val transaction: Transaction
+    val transaction: MerchantTransaction
 )
 
-// Matches the JSON structure you provided
+data class MerchantTransaction(
+    val merchant: String,
+    val category: String,
+    val amt: Double,
+    @SerializedName("merch_lat") val merchLat: Double,
+    @SerializedName("merch_long") val merchLong: Double
+)
+
 data class Transaction(
     @SerializedName("trans_date_trans_time") val transDateTime: String,
     val merchant: String,

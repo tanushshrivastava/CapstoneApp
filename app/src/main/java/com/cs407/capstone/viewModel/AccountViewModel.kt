@@ -1,3 +1,22 @@
+/**
+ * AccountViewModel.kt
+ * 
+ * Manages user account state and operations:
+ * - User authentication (login/logout)
+ * - Account creation with comprehensive user data
+ * - Settings management (phone number, fraud threshold)
+ * - Persistent login using SharedPreferences
+ * - API communication for account operations
+ * 
+ * Account Creation Fields:
+ * - Basic: username, email, password
+ * - Personal: first_name, last_name, gender, date_of_birth, job
+ * - Financial: cc_num, fraudThreshold, smsOptIn
+ * - Location: street, city, state, zip, address
+ * - Contact: phoneNumber
+ * 
+ * Backend auto-populates: cityPopulation, lat/long, accountId, timestamps
+ */
 package com.cs407.capstone.viewModel
 
 import android.content.Context
@@ -15,9 +34,20 @@ import kotlinx.coroutines.launch
 class AccountViewModel(private val context: Context) : ViewModel() {
     var username by mutableStateOf("")
     var email by mutableStateOf("")
-    var address by mutableStateOf("")
     var password by mutableStateOf("")
+    var firstName by mutableStateOf("")
+    var lastName by mutableStateOf("")
+    var ccNum by mutableStateOf("")
+    var gender by mutableStateOf("")
+    var dateOfBirth by mutableStateOf("")
+    var job by mutableStateOf("")
+    var street by mutableStateOf("")
+    var city by mutableStateOf("")
+    var state by mutableStateOf("")
+    var zip by mutableStateOf("")
+    var address by mutableStateOf("")
     var phoneNumber by mutableStateOf("")
+    var smsOptIn by mutableStateOf(true)
 
     var identifier by mutableStateOf("")
     var loginPassword by mutableStateOf("")
@@ -37,7 +67,9 @@ class AccountViewModel(private val context: Context) : ViewModel() {
     }
 
     private fun validateCreateAccountFields(): Boolean {
-        if (username.isBlank() || email.isBlank() || password.isBlank()) {
+        if (username.isBlank() || email.isBlank() || password.isBlank() || 
+            firstName.isBlank() || lastName.isBlank() || ccNum.isBlank() ||
+            phoneNumber.isBlank()) {
             errorMessage = "Please fill in all required fields."
             return false
         }
@@ -52,18 +84,39 @@ class AccountViewModel(private val context: Context) : ViewModel() {
         return true
     }
 
+    /**
+     * Create new user account with comprehensive user data
+     * Sends all user fields to backend, which auto-populates:
+     * - cityPopulation (from zip code)
+     * - latitude/longitude (from address geocoding)
+     * - accountId, passwordHash, createdAt (system generated)
+     */
     fun createAccount() {
         if (!validateCreateAccountFields()) return
 
         viewModelScope.launch {
             isLoading = true
             errorMessage = null
+            
+            // Create comprehensive account request with all user data
             val request = CreateAccountRequest(
                 username = username,
                 email = email,
                 password = password,
+                first_name = firstName,
+                last_name = lastName,
+                cc_num = ccNum,
+                gender = gender,
+                date_of_birth = dateOfBirth,
+                job = job,
+                street = street,
+                city = city,
+                state = state,
+                zip = zip,
+                address = address,
                 phoneNumber = phoneNumber,
-                address = address
+                fraudThreshold = fraudThreshold,
+                smsOptIn = smsOptIn
             )
             try {
                 val response = apiService.createAccount(request)
@@ -76,8 +129,7 @@ class AccountViewModel(private val context: Context) : ViewModel() {
                 }
             } catch (e: Exception) {
                 errorMessage = "An unexpected error occurred. Please check your network connection."
-            }
-            finally {
+            } finally {
                 isLoading = false
             }
         }
@@ -138,6 +190,10 @@ class AccountViewModel(private val context: Context) : ViewModel() {
         }
     }
 
+    /**
+     * Save account data to SharedPreferences for persistent login
+     * Stores: accountId, username, phone, fraudThreshold, login status
+     */
     private fun saveAccount(accountId: String, username: String, phoneNumber: String, fraudThreshold: Double) {
         with(sharedPreferences.edit()) {
             putString("account_id", accountId)
@@ -149,6 +205,10 @@ class AccountViewModel(private val context: Context) : ViewModel() {
         }
     }
     
+    /**
+     * Load saved account data on app startup
+     * Restores login state if user was previously logged in
+     */
     private fun loadSavedAccount() {
         val savedAccountId = sharedPreferences.getString("account_id", null)
         val savedUsername = sharedPreferences.getString("username", null)
@@ -156,6 +216,7 @@ class AccountViewModel(private val context: Context) : ViewModel() {
         val savedFraudThreshold = sharedPreferences.getFloat("fraud_threshold", 0.0f).toDouble()
         val savedIsLoggedIn = sharedPreferences.getBoolean("is_logged_in", false)
         
+        // Restore login state if all required data is present
         if (savedIsLoggedIn && savedAccountId != null && savedUsername != null) {
             loggedInAccount = Account(savedAccountId, savedUsername, null)
             phoneNumber = savedPhoneNumber ?: ""
@@ -169,10 +230,21 @@ class AccountViewModel(private val context: Context) : ViewModel() {
         loggedInAccount = null
         username = ""
         email = ""
-        address = ""
         password = ""
+        firstName = ""
+        lastName = ""
+        ccNum = ""
+        gender = ""
+        dateOfBirth = ""
+        job = ""
+        street = ""
+        city = ""
+        state = ""
+        zip = ""
+        address = ""
         phoneNumber = ""
         fraudThreshold = 0.0
+        smsOptIn = true
         identifier = ""
         loginPassword = ""
         errorMessage = null
