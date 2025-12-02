@@ -62,44 +62,50 @@ class NotificationListener : NotificationListenerService() {
         if (intent?.action == "com.cs407.capstone.ACTION_TEST_NOTIFICATION") {
             coroutineScope.launch {
                 // Process test transaction for debugging
-                processGmailNotification("{\"accountId\":\"test-id\",\"transaction\":{\"amt\":10.0,\"category\":\"shopping\",\"merchant\":\"Test Merchant\"}}")
+                processGmailNotification("""{"accountId":"test-id","transaction":{"amt":10.0,"category":"shopping","merchant":"Test Merchant"}}""")
             }
         }
         return super.onStartCommand(intent, flags, startId)
     }
 
     /**
-     * Called when any notification is posted to the system
-     * Filters for Gmail notifications and extracts transaction data
+     * Called when any notification is posted to the system.
+     * Logs the content of every notification for debugging and filters for Gmail
+     * notifications to extract and process transaction data.
      */
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         val notification = sbn.notification
         val extras = notification.extras
         val packageName = sbn.packageName
 
-        val intent = Intent("com.cs407.capstone.NOTIFICATION_LISTENER")
-        intent.putExtra("title", "Notification Debug")
+        // --- Enhanced Logging for ALL notifications ---
+        val title = extras.getCharSequence("android.title")?.toString() ?: ""
+        val text = extras.getCharSequence("android.text")?.toString() ?: ""
+        val bigText = extras.getCharSequence("android.bigText")?.toString() ?: ""
+        val subText = extras.getCharSequence("android.subText")?.toString() ?: ""
+        val summaryText = extras.getCharSequence("android.summaryText")?.toString() ?: ""
+        
+        val fullContentLog = "Title: '$title' | Text: '$text' | BigText: '$bigText' | SubText: '$subText' | Summary: '$summaryText'"
+        Log.d("NotificationListener", ">>> NOTIFICATION POSTED from $packageName")
+        Log.d("NotificationListener", "    CONTENT: $fullContentLog")
+        // --- End of Enhanced Logging ---
 
         // Only process Gmail notifications
         if (packageName == "com.google.android.gm") {
-            // Extract all possible text fields from Gmail notification
-            // Gmail may put JSON in different text fields depending on email content
-            val title = extras.getCharSequence("android.title")?.toString() ?: ""
-            val text = extras.getCharSequence("android.text")?.toString() ?: ""
-            val bigText = extras.getCharSequence("android.bigText")?.toString() ?: ""
-            val subText = extras.getCharSequence("android.subText")?.toString() ?: ""
-            val summaryText = extras.getCharSequence("android.summaryText")?.toString() ?: ""
+            Log.d("NotificationListener", "Gmail notification found. Attempting to process...")
             
             // Combine all text fields to search for JSON
-            val fullContent = "$title $text $bigText $subText $summaryText"
-            Log.d("NotificationListener", "Full Gmail content: $fullContent")
+            val gmailFullContent = "$title $text $bigText $subText $summaryText"
             
             // Process in background thread
             coroutineScope.launch {
-                processGmailNotification(fullContent)
+                processGmailNotification(gmailFullContent)
             }
         } else {
             // Log non-Gmail notifications for debugging
+            Log.d("NotificationListener", "Ignoring notification from $packageName (not Gmail).")
+            val intent = Intent("com.cs407.capstone.NOTIFICATION_LISTENER")
+            intent.putExtra("title", "Notification Debug")
             intent.putExtra("text", "Received notification from: $packageName")
             LocalBroadcastManager.getInstance(this).sendBroadcast(intent)
         }
@@ -123,7 +129,7 @@ class NotificationListener : NotificationListenerService() {
             val jsonEnd = text.lastIndexOf("}") + 1
             
             if (jsonStart == -1 || jsonEnd <= jsonStart) {
-                Log.e("NotificationListener", "No JSON found in notification")
+                Log.e("NotificationListener", "No JSON found in notification content.")
                 return
             }
             
@@ -138,7 +144,7 @@ class NotificationListener : NotificationListenerService() {
             // Check if we've processed this exact request recently
             val lastRequestTime = recentRequests[requestKey]
             if (lastRequestTime != null && (currentTime - lastRequestTime) < dedupeWindowMs) {
-                Log.d("NotificationListener", "Duplicate request ignored")
+                Log.d("NotificationListener", "Duplicate request ignored (within ${dedupeWindowMs / 1000}s window).")
                 return
             }
             
@@ -153,14 +159,15 @@ class NotificationListener : NotificationListenerService() {
             val accountId = sharedPreferences.getString("account_id", null)
             
             if (accountId == null) {
-                Log.e("NotificationListener", "No account ID found")
+                Log.e("NotificationListener", "No account ID found. User may not be logged in.")
                 return
             }
             
             // Wrap merchant transaction JSON with accountId
             // Format: {"accountId":"...", "transaction":{merchant data}}
-            val fullRequest = "{\"accountId\":\"$accountId\",\"transaction\":$jsonString}"
-            
+            val fullRequest = """{"accountId":"$accountId","transaction":$jsonString}"""
+            Log.d("NotificationListener", "Sending to API: $fullRequest")
+
             // Send to backend API
             coroutineScope.launch {
                 try {
@@ -172,10 +179,12 @@ class NotificationListener : NotificationListenerService() {
                     if (response.isSuccessful) {
                         intent.putExtra("title", "Transaction Processed")
                         intent.putExtra("text", "Gmail transaction processed successfully")
+                        Log.d("NotificationListener", "API Success: ${response.body()}")
                     } else {
+                        val errorBody = response.errorBody()?.string()
                         intent.putExtra("title", "Transaction Failed")
-                        intent.putExtra("text", "Error: ${response.errorBody()?.string()}")
-                        Log.e("NotificationListener", "Error sending transaction: ${response.errorBody()?.string()}")
+                        intent.putExtra("text", "Error: $errorBody")
+                        Log.e("NotificationListener", "API Error: ${response.code()} - $errorBody")
                     }
                     LocalBroadcastManager.getInstance(this@NotificationListener).sendBroadcast(intent)
                 } catch (e: Exception) {
@@ -184,7 +193,7 @@ class NotificationListener : NotificationListenerService() {
                     intent.putExtra("title", "Transaction Failed")
                     intent.putExtra("text", "Exception: ${e.message}")
                     LocalBroadcastManager.getInstance(this@NotificationListener).sendBroadcast(intent)
-                    Log.e("NotificationListener", "Exception processing transaction", e)
+                    Log.e("NotificationListener", "Exception while sending transaction", e)
                 }
             }
         } catch (e: Exception) {

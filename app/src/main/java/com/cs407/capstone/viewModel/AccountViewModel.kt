@@ -14,7 +14,7 @@
  * - Financial: cc_num, fraudThreshold, smsOptIn
  * - Location: street, city, state, zip, address
  * - Contact: phoneNumber
- * 
+ * rano
  * Backend auto-populates: cityPopulation, lat/long, accountId, timestamps
  */
 package com.cs407.capstone.viewModel
@@ -113,7 +113,7 @@ class AccountViewModel(private val context: Context) : ViewModel() {
                 city = city,
                 state = state,
                 zip = zip,
-                address = address,
+                address = "${street.trim()}, ${city.trim()}, ${state.trim()} ${zip.trim()}",
                 phoneNumber = phoneNumber,
                 fraudThreshold = fraudThreshold,
                 smsOptIn = smsOptIn
