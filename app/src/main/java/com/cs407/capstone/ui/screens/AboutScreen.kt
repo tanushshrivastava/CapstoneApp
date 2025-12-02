@@ -163,6 +163,21 @@ fun AboutScreen() {
                 )
             }
         }
+        item {
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+
+                TeamMemberCard(
+                    imageRes = R.drawable.nolan_smith,
+                    name = "Nolan Smith",
+                    role = "Capital One Mentor",
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
     }
 }
 
