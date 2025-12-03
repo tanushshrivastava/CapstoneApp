@@ -1,205 +1,135 @@
-/**
- * NotificationListener.kt
- * 
- * Android NotificationListenerService that monitors Gmail notifications for transaction data.
- * 
- * Key Features:
- * - Listens for Gmail notifications containing JSON transaction data
- * - Extracts merchant transaction info (amount, merchant, category, location)
- * - Adds logged-in user's accountId and sends to backend API
- * - Prevents duplicate requests with 30-second deduplication window
- * - Backend auto-populates all other transaction fields from user account
- * 
- * Expected Gmail JSON format:
- * {
- *   "amt": 99.99,
- *   "merchant": "Amazon",
- *   "category": "shopping", 
- *   "merch_lat": 43.0731,
- *   "merch_long": -89.4012
- * }
- */
 package com.cs407.capstone.service
 
-import android.content.Intent
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import android.util.Log
-import androidx.localbroadcastmanager.content.LocalBroadcastManager
+import com.aallam.openai.api.chat.ChatCompletionRequest
+import com.aallam.openai.api.chat.ChatMessage
+import com.aallam.openai.api.chat.ChatRole
+import com.aallam.openai.api.model.ModelId
+import com.aallam.openai.client.OpenAI
 import com.cs407.capstone.BuildConfig
 import com.cs407.capstone.api.RetrofitClient
-import com.google.android.libraries.places.api.Places
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
-
+import org.json.JSONObject
 
 class NotificationListener : NotificationListenerService() {
     private val coroutineScope = CoroutineScope(Dispatchers.IO)
-    
-    // Deduplication system to prevent duplicate transaction requests
-    private val recentRequests = mutableMapOf<String, Long>() // Maps request hash to timestamp
-    private val dedupeWindowMs = 30000L // 30 seconds - ignore duplicates within this window
+    private lateinit var openAI: OpenAI
 
-    /**
-     * Initialize the notification listener service
-     * Sets up Google Places API for location services (if needed)
-     */
+    private val recentRequests = mutableMapOf<String, Long>()
+    private val dedupeWindowMs = 30000L
+
     override fun onCreate() {
         super.onCreate()
-        if (!Places.isInitialized()) {
-            Places.initialize(applicationContext, BuildConfig.GOOGLE_MAPS_KEY)
-        }
+        Log.d("NotificationListener", "Service created. Initializing OpenAI.")
+        openAI = OpenAI(BuildConfig.OPEN_AI_KEY)
     }
 
-    /**
-     * Handle test notification requests for debugging
-     * Allows manual triggering of notification processing
-     */
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == "com.cs407.capstone.ACTION_TEST_NOTIFICATION") {
-            coroutineScope.launch {
-                // Process test transaction for debugging
-                processGmailNotification("""{"accountId":"test-id","transaction":{"amt":10.0,"category":"shopping","merchant":"Test Merchant"}}""")
-            }
-        }
-        return super.onStartCommand(intent, flags, startId)
-    }
-
-    /**
-     * Called when any notification is posted to the system.
-     * Logs the content of every notification for debugging and filters for Gmail
-     * notifications to extract and process transaction data.
-     */
     override fun onNotificationPosted(sbn: StatusBarNotification) {
+        Log.d("NotificationListener", "onNotificationPosted received from package: ${sbn.packageName}")
         val notification = sbn.notification
         val extras = notification.extras
-        val packageName = sbn.packageName
 
-        // --- Enhanced Logging for ALL notifications ---
-        val title = extras.getCharSequence("android.title")?.toString() ?: ""
-        val text = extras.getCharSequence("android.text")?.toString() ?: ""
-        val bigText = extras.getCharSequence("android.bigText")?.toString() ?: ""
-        val subText = extras.getCharSequence("android.subText")?.toString() ?: ""
-        val summaryText = extras.getCharSequence("android.summaryText")?.toString() ?: ""
-        
-        val fullContentLog = "Title: '$title' | Text: '$text' | BigText: '$bigText' | SubText: '$subText' | Summary: '$summaryText'"
-        Log.d("NotificationListener", ">>> NOTIFICATION POSTED from $packageName")
-        Log.d("NotificationListener", "    CONTENT: $fullContentLog")
-        // --- End of Enhanced Logging ---
+        // Combine all text fields for robust parsing
+        val title = extras.getCharSequence("android.title")?.toString()
+        val text = extras.getCharSequence("android.text")?.toString()
+        val bigText = extras.getCharSequence("android.bigText")?.toString()
+        val subText = extras.getCharSequence("android.subText")?.toString()
+        val summaryText = extras.getCharSequence("android.summaryText")?.toString()
 
-        // Only process Gmail notifications
-        if (packageName == "com.google.android.gm") {
-            Log.d("NotificationListener", "Gmail notification found. Attempting to process...")
-            
-            // Combine all text fields to search for JSON
-            val gmailFullContent = "$title $text $bigText $subText $summaryText"
-            
-            // Process in background thread
-            coroutineScope.launch {
-                processGmailNotification(gmailFullContent)
-            }
-        } else {
-            // Log non-Gmail notifications for debugging
-            Log.d("NotificationListener", "Ignoring notification from $packageName (not Gmail).")
-            val intent = Intent("com.cs407.capstone.NOTIFICATION_LISTENER")
-            intent.putExtra("title", "Notification Debug")
-            intent.putExtra("text", "Received notification from: $packageName")
-            LocalBroadcastManager.getInstance(this).sendBroadcast(intent)
+        val notificationContent = listOfNotNull(title, text, bigText, subText, summaryText).joinToString(" | ")
+
+        if (notificationContent.isBlank()) {
+            Log.d("NotificationListener", "Notification content is completely blank. Ignoring.")
+            return
         }
-    }
 
+        Log.d("NotificationListener", "Processing combined notification content:\n$notificationContent")
 
-    /**
-     * Process Gmail notification text to extract and submit transaction data
-     * 
-     * Flow:
-     * 1. Extract JSON from notification text
-     * 2. Check for duplicates (30-second window)
-     * 3. Add logged-in user's accountId
-     * 4. Send to backend API
-     * 5. Backend auto-populates remaining fields from user account
-     */
-    private fun processGmailNotification(text: String) {
-        try {
-            // Find JSON boundaries in the notification text
-            val jsonStart = text.indexOf("{")
-            val jsonEnd = text.lastIndexOf("}") + 1
-            
-            if (jsonStart == -1 || jsonEnd <= jsonStart) {
-                Log.e("NotificationListener", "No JSON found in notification content.")
-                return
-            }
-            
-            // Extract and clean JSON (replace HTML entities)
-            val jsonString = text.substring(jsonStart, jsonEnd).replace("&quot;", "\"")
-            Log.d("NotificationListener", "Processing JSON: $jsonString")
-            
-            // DEDUPLICATION: Create unique key from JSON content
-            val requestKey = jsonString.hashCode().toString()
-            val currentTime = System.currentTimeMillis()
-            
-            // Check if we've processed this exact request recently
-            val lastRequestTime = recentRequests[requestKey]
-            if (lastRequestTime != null && (currentTime - lastRequestTime) < dedupeWindowMs) {
-                Log.d("NotificationListener", "Duplicate request ignored (within ${dedupeWindowMs / 1000}s window).")
-                return
-            }
-            
-            // Clean up old entries to prevent memory leaks
-            recentRequests.entries.removeAll { (currentTime - it.value) > dedupeWindowMs }
-            
-            // Record this request timestamp
-            recentRequests[requestKey] = currentTime
-            
-            // Get logged-in user's account ID from SharedPreferences
-            val sharedPreferences = getSharedPreferences("account_prefs", android.content.Context.MODE_PRIVATE)
-            val accountId = sharedPreferences.getString("account_id", null)
-            
-            if (accountId == null) {
-                Log.e("NotificationListener", "No account ID found. User may not be logged in.")
-                return
-            }
-            
-            // Wrap merchant transaction JSON with accountId
-            // Format: {"accountId":"...", "transaction":{merchant data}}
-            val fullRequest = """{"accountId":"$accountId","transaction":$jsonString}"""
-            Log.d("NotificationListener", "Sending to API: $fullRequest")
+        coroutineScope.launch {
+            try {
+                val chatCompletionRequest = ChatCompletionRequest(
+                    model = ModelId("gpt-3.5-turbo"),
+                    messages = listOf(
+                        ChatMessage(
+                            role = ChatRole.System,
+                            content = """You are a financial transaction parser. Analyze the notification text. 
+                            If it is a purchase or financial transaction, extract merchant, amount (as a number), and optionally merchant latitude and longitude. 
+                            Return the result as a JSON object with the keys: 'merchant', 'amt', 'merch_lat', 'merch_long'.
+                            For example, for 'a transaction was made at Amazon of price 100.00 and at location 43,89', you should return '{"merchant": "Amazon", "amt": 100.00, "merch_lat": 43, "merch_long": 89}'.
+                            If it is not a financial transaction, return an empty JSON object {}. If the notification includes Google Voice or the number 877-791-3403 or 608-620-3659 then also return {}."""
+                        ),
+                        ChatMessage(
+                            role = ChatRole.User,
+                            content = notificationContent
+                        )
+                    )
+                )
+                Log.d("NotificationListener", "Sending request to OpenAI...")
+                val completion = openAI.chatCompletion(chatCompletionRequest)
+                Log.d("NotificationListener", "OpenAI request completed.")
+                val jsonResponse = completion.choices.first().message.content
 
-            // Send to backend API
-            coroutineScope.launch {
-                try {
-                    val requestBody = fullRequest.toRequestBody("application/json".toMediaType())
-                    val response = RetrofitClient.apiService.postTransactionFromJson(requestBody)
-                    
-                    // Broadcast result to app UI
-                    val intent = Intent("com.cs407.capstone.NOTIFICATION_LISTENER")
-                    if (response.isSuccessful) {
-                        intent.putExtra("title", "Transaction Processed")
-                        intent.putExtra("text", "Gmail transaction processed successfully")
-                        Log.d("NotificationListener", "API Success: ${response.body()}")
-                    } else {
-                        val errorBody = response.errorBody()?.string()
-                        intent.putExtra("title", "Transaction Failed")
-                        intent.putExtra("text", "Error: $errorBody")
-                        Log.e("NotificationListener", "API Error: ${response.code()} - $errorBody")
-                    }
-                    LocalBroadcastManager.getInstance(this@NotificationListener).sendBroadcast(intent)
-                } catch (e: Exception) {
-                    // Handle network/API errors
-                    val intent = Intent("com.cs407.capstone.NOTIFICATION_LISTENER")
-                    intent.putExtra("title", "Transaction Failed")
-                    intent.putExtra("text", "Exception: ${e.message}")
-                    LocalBroadcastManager.getInstance(this@NotificationListener).sendBroadcast(intent)
-                    Log.e("NotificationListener", "Exception while sending transaction", e)
+                if (jsonResponse != null && jsonResponse.trim().length > 2) { // not an empty JSON
+                    Log.d("NotificationListener", "OpenAI response contains data: $jsonResponse")
+                    sendTransactionToApi(jsonResponse)
+                } else {
+                    Log.d("NotificationListener", "OpenAI response is empty or not a transaction. Ignoring. Response: $jsonResponse")
                 }
+            } catch (e: Exception) {
+                Log.e("NotificationListener", "Error processing notification with OpenAI", e)
             }
-        } catch (e: Exception) {
-            Log.e("NotificationListener", "Error parsing Gmail notification", e)
         }
     }
 
+    private fun sendTransactionToApi(transactionJson: String) {
+        Log.d("NotificationListener", "Preparing to send transaction to API.")
+        val requestKey = transactionJson.hashCode().toString()
+        val currentTime = System.currentTimeMillis()
 
+        if (recentRequests.containsKey(requestKey) && (currentTime - (recentRequests[requestKey] ?: 0) < dedupeWindowMs)) {
+            Log.d("NotificationListener", "Duplicate transaction ignored (hash: $requestKey).")
+            return
+        }
+        recentRequests[requestKey] = currentTime
+
+        val sharedPreferences = getSharedPreferences("account_prefs", MODE_PRIVATE)
+        val accountId = sharedPreferences.getString("account_id", null)
+
+        if (accountId == null) {
+            Log.e("NotificationListener", "No account ID found. User may not be logged in. Cannot send transaction.")
+            return
+        }
+        Log.d("NotificationListener", "Found accountId: $accountId")
+
+        // Re-create the JSON object to include the accountId
+        val transaction = JSONObject(transactionJson)
+        val finalPayload = JSONObject()
+        finalPayload.put("accountId", accountId)
+        finalPayload.put("transaction", transaction)
+
+        val payloadString = finalPayload.toString()
+        Log.d("NotificationListener", "Final payload to be sent: $payloadString")
+
+        val requestBody = payloadString.toRequestBody("application/json".toMediaType())
+
+        coroutineScope.launch {
+            try {
+                Log.d("NotificationListener", "Executing API call...")
+                val response = RetrofitClient.apiService.postTransactionFromJson(requestBody)
+                if (response.isSuccessful) {
+                    Log.d("NotificationListener", "API Success: Transaction sent successfully. Response: ${response.body()?.toString()}")
+                } else {
+                    Log.e("NotificationListener", "API Error: ${response.code()} - ${response.errorBody()?.string()}")
+                }
+            } catch (e: Exception) {
+                Log.e("NotificationListener", "Exception while sending transaction to API", e)
+            }
+        }
+    }
 }

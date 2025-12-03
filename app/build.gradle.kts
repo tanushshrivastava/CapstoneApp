@@ -28,6 +28,7 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "API_URL", "\"${localProperties.getProperty("API_URL") ?: ""}\"")
         buildConfigField("String", "GOOGLE_MAPS_KEY", "\"${localProperties.getProperty("google.maps.key") ?: ""}\"")
+        buildConfigField("String", "OPEN_AI_KEY", "\"${localProperties.getProperty("OPEN_AI") ?: ""}\"")
     }
 
     buildTypes {
@@ -62,7 +63,8 @@ dependencies {
     implementation(libs.androidx.ui.graphics)
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
-
+    implementation("com.aallam.openai:openai-client:3.7.0") // latest as of 2024
+    implementation("io.ktor:ktor-client-okhttp:2.3.4")
     implementation("androidx.navigation:navigation-compose:2.7.7")
     implementation("androidx.compose.material:material:1.6.8")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.0")
@@ -70,6 +72,7 @@ dependencies {
     implementation("com.squareup.retrofit2:retrofit:2.9.0")
     implementation("com.squareup.retrofit2:converter-gson:2.9.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+
     implementation("io.coil-kt:coil-compose:2.5.0")
     implementation("com.airbnb.android:lottie-compose:6.1.0")
     implementation("androidx.compose.material:material-icons-extended:1.6.8")

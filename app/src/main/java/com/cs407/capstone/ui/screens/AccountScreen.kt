@@ -235,13 +235,13 @@ fun EnhancedTransactionItem(transaction: com.cs407.capstone.data.RecentTransacti
                 Column(modifier = Modifier.weight(1f)) {
                     // Merchant name (primary text)
                     Text(
-                        text = transaction.merchant,
+                        text = transaction.merchant ?: "Unknown Merchant",
                         style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.primary
                     )
                     // Category (secondary text, uppercase)
                     Text(
-                        text = transaction.category.uppercase(),
+                        text = (transaction.category ?: "Uncategorized").uppercase(),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.secondary
                     )
@@ -260,7 +260,7 @@ fun EnhancedTransactionItem(transaction: com.cs407.capstone.data.RecentTransacti
             Row(modifier = Modifier.fillMaxWidth()) {
                 // Fraud detection score (formatted to 2 decimals)
                 Text(
-                    text = "Fraud Score: ${String.format("%.2f", transaction.fraudScore)}",
+                    text = "Fraud Score: ${String.format("%.2f", transaction.fraudScore ?: 0.0)}",
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.weight(1f)
                 )
